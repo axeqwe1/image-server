@@ -21,6 +21,10 @@ func main() {
 
 	app := fiber.New()
 
+	// เพิ่ม route สำหรับ "/"
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.SendString("Welcome to Go Image Server!")
+	})
 	app.Post("/upload", handlers.Upload)
 	app.Get("/image/:filename/resize", handlers.Resize)
 
