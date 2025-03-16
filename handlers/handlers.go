@@ -1,0 +1,74 @@
+package handlers
+
+import (
+	"fmt"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/disintegration/imaging"
+	"github.com/gofiber/fiber/v2"
+	"github.com/stretchr/testify/assert"
+)
+
+func Upload(c *fiber.Ctx) error {
+	file, err := c.FormFile("image")
+
+	if err != nil {
+		return c.Status(400).SendString("Upload failed")
+	}
+
+	savePath := filepath.Join("./uploads", file.Filename)
+	err = c.SaveFile(file, savePath)
+	if err != nil {
+		return c.Status(500).SendString("Cannot save file")
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "image uploaded",
+		"url":     "/images/" + file.Filename,
+	})
+}
+
+func Resize(c *fiber.Ctx) error {
+	filename := c.Params("filename")
+	width := c.QueryInt("w", 100)
+	height := c.QueryInt("h", 100)
+
+	// สร้างชื่อไฟล์สำหรับรูปที่ resize
+	resizedFilename := fmt.Sprintf("%s_%dx%d.jpg", strings.TrimSuffix(filename, filepath.Ext(filename)), width, height)
+	resizedPath := filepath.Join("./uploads", resizedFilename)
+
+	// ตรวจสอบว่ามีไฟล์อยู่แล้วหรือไม่
+	if _, err := os.Stat(resizedPath); err == nil {
+		return c.Type("jpg").SendFile(resizedPath)
+	}
+
+	imgPath := filepath.Join("./uploads", filename)
+	img, err := imaging.Open(imgPath)
+	if err != nil {
+		return c.Status(404).SendString("Image not found")
+	}
+
+	resized := imaging.Resize(img, width, height, imaging.Lanczos)
+
+	// บันทึกไฟล์ที่ resize ไว้
+	err = imaging.Save(resized, resizedPath, imaging.JPEGQuality(85))
+	if err != nil {
+		return c.Status(500).SendString("Error saving resized image")
+	}
+
+	return c.Type("jpg").SendFile(resizedPath)
+}
+
+func TestUpload(t *testing.T) {
+	app := fiber.New()
+	app.Post("/upload", Upload)
+
+	req := httptest.NewRequest("POST", "/upload", nil)
+	resp, err := app.Test(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 400, resp.StatusCode)
+}
