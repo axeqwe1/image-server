@@ -14,21 +14,38 @@ import (
 )
 
 func Upload(c *fiber.Ctx) error {
-	file, err := c.FormFile("image")
-
+	// รับ multipart form
+	form, err := c.MultipartForm()
 	if err != nil {
 		return c.Status(400).SendString("Upload failed")
 	}
 
-	savePath := filepath.Join("./uploads", file.Filename)
-	err = c.SaveFile(file, savePath)
-	if err != nil {
-		return c.Status(500).SendString("Cannot save file")
+	// ดึงไฟล์ทั้งหมดจาก key "image" (สามารถอัพโหลดหลายไฟล์ได้)
+	files := form.File["image"]
+	if len(files) == 0 {
+		return c.Status(400).SendString("No images uploaded")
 	}
 
+	// สร้าง slice เพื่อเก็บ URL ของภาพที่อัพโหลด
+	var urls []string
+
+	// วนลูปบันทึกไฟล์แต่ละไฟล์
+	for _, file := range files {
+		savePath := filepath.Join("./uploads", file.Filename)
+		err = c.SaveFile(file, savePath)
+		if err != nil {
+			return c.Status(500).SendString("Cannot save file: " + file.Filename)
+		}
+
+		// เพิ่ม URL ลงใน slice
+		url := "https://" + c.Hostname() + "/images/" + file.Filename
+		urls = append(urls, url)
+	}
+
+	// ส่ง response กลับไป
 	return c.JSON(fiber.Map{
-		"message": "image uploaded",
-		"url":     "https://" + c.Hostname() + "/images/" + file.Filename,
+		"message": "Images uploaded successfully",
+		"urls":    urls,
 	})
 }
 
