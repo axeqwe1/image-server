@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time" // เพิ่ม import สำหรับ timestamp
 
 	"github.com/disintegration/imaging"
 	"github.com/gofiber/fiber/v2"
@@ -31,14 +32,16 @@ func Upload(c *fiber.Ctx) error {
 
 	// วนลูปบันทึกไฟล์แต่ละไฟล์
 	for _, file := range files {
-		savePath := filepath.Join("./uploads", file.Filename)
+		
+		filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), filepath.Ext(file.Filename))
+		savePath := filepath.Join("./uploads", filename)
 		err = c.SaveFile(file, savePath)
 		if err != nil {
 			return c.Status(500).SendString("Cannot save file: " + file.Filename)
 		}
 
 		// เพิ่ม URL ลงใน slice
-		url := "https://" + c.Hostname() + "/images/" + file.Filename
+		url := "https://" + c.Hostname() + "/images/" + filename
 		urls = append(urls, url)
 	}
 
