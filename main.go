@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/axeqwe1/image-server/handlers"
+	"github.com/axeqwe1/image-server/middleware"
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
 )
@@ -20,7 +21,8 @@ func main() {
 	}
 
 	app := fiber.New()
-
+	// ใช้ CORS middleware
+	app.Use(middleware.Cors())
 	// เพิ่ม route สำหรับ "/"
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.SendString("Welcome to Go Image Server!")
