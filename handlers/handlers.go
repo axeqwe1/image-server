@@ -32,7 +32,7 @@ func Upload(c *fiber.Ctx) error {
 
 	// วนลูปบันทึกไฟล์แต่ละไฟล์
 	for _, file := range files {
-		
+
 		filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), filepath.Ext(file.Filename))
 		savePath := filepath.Join("./uploads", filename)
 		err = c.SaveFile(file, savePath)

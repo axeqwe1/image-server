@@ -20,7 +20,9 @@ func main() {
 		log.Fatal("Cannot create uploads directory:", err)
 	}
 
-	app := fiber.New()
+	app := fiber.New(fiber.Config{
+		BodyLimit: 50 * 1024 * 1024, // 50 MB (หน่วยเป็น bytes)
+	})
 	// ใช้ CORS middleware
 	app.Use(middleware.Cors())
 	// เพิ่ม route สำหรับ "/"
