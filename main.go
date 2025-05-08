@@ -36,5 +36,5 @@ func main() {
 	if port == "" {
 		port = "3000"
 	}
-	log.Fatal(app.Listen(":" + port))
+	log.Fatal(app.Listen("127.0.0.1:" + port))
 }
