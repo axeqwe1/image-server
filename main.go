@@ -21,7 +21,8 @@ func main() {
 	}
 
 	app := fiber.New(fiber.Config{
-		BodyLimit: 50 * 1024 * 1024, // 50 MB (หน่วยเป็น bytes)
+		BodyLimit:         100 * 1024 * 1024, // 100MB
+		StreamRequestBody: true,              // Stream แทนการเก็บใน memory
 	})
 	// ใช้ CORS middleware
 	app.Use(middleware.Cors())

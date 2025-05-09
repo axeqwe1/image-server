@@ -2,67 +2,114 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time" // เพิ่ม import สำหรับ timesta
+
+	"github.com/google/uuid"
 
 	"github.com/disintegration/imaging"
 	"github.com/gofiber/fiber/v2"
 	pngquant "github.com/yusukebe/go-pngquant"
+	"golang.org/x/sync/semaphore"
 )
 
 func Upload(c *fiber.Ctx) error {
-	// รับ multipart form
+	start := time.Now()
+	fmt.Printf("Start receiving request at %v from %s\n", start, c.Get("Origin"))
+
 	form, err := c.MultipartForm()
 	if err != nil {
-		return c.Status(400).SendString("Upload failed")
+		fmt.Printf("Cannot parse multipart form: %v\n", err)
+		return c.Status(400).SendString("Upload failed: " + err.Error())
 	}
+	fmt.Printf("Parse multipart form took %v\n", time.Since(start))
 
-	// ดึงไฟล์ทั้งหมดจาก key "image" (สามารถอัพโหลดหลายไฟล์ได้)
 	files := form.File["image"]
 	if len(files) == 0 {
 		return c.Status(400).SendString("No images uploaded")
 	}
-
-	clientIP := c.IP()
-	userAgent := c.Get("User-Agent")
-
-	// สร้าง slice เพื่อเก็บ URL ของภาพที่อัพโหลด
-	var urls []string
-
-	// วนลูปบันทึกไฟล์แต่ละไฟล์
-	for _, file := range files {
-		originalName := file.Filename
-		newName := time.Now().Format("20060102_150405") + ".png"
-		savePath := filepath.Join("./uploads", newName)
-		err = c.SaveFile(file, savePath)
-
-		checkPngquant()
-
-		if err != nil {
-			return c.Status(500).SendString("Cannot save file: " + file.Filename)
-		}
-
-		// บีบอัดภาพหลังบันทึก
-		err = compressPNG(savePath, savePath)
-		if err != nil {
-			fmt.Printf("Compress failed for %s: %v\n", newName, err)
-		}
-
-		// Logging
-		fmt.Printf("UPLOAD [%s] from [%s] - UA: [%s] - original: %s => saved: %s\n",
-			time.Now().Format(time.RFC3339), clientIP, userAgent, originalName, newName)
-
-		// เพิ่ม URL ลงใน slice
-		url := "https://" + "www.ymt-group.com" + "/pos-image/" + newName
-		urls = append(urls, url)
+	if len(files) > 10 {
+		return c.Status(400).SendString("Too many files uploaded (max 10)")
 	}
 
-	// ส่ง response กลับไป
-	return c.JSON(fiber.Map{
+	userAgent := c.Get("User-Agent")
+	var urls []string
+	var mu sync.Mutex
+
+	sem := semaphore.NewWeighted(2)
+	ctx := context.Background()
+	errors := make(chan error, len(files))
+
+	for i, file := range files {
+		if err := sem.Acquire(ctx, 1); err != nil {
+			fmt.Printf("Cannot acquire semaphore: %v\n", err)
+			return c.Status(500).SendString("Server busy")
+		}
+
+		go func(i int, file *multipart.FileHeader) {
+			defer sem.Release(1)
+			loopStart := time.Now()
+			originalName := file.Filename
+			newName := fmt.Sprintf("%s_%d_%s.png", time.Now().Format("20060102_150405"), i, uuid.New().String()[0:6])
+			savePath := filepath.Join("./uploads", newName)
+
+			fileData, err := file.Open()
+			if err != nil {
+				errors <- fmt.Errorf("Cannot read file %s: %v", originalName, err)
+				return
+			}
+			defer fileData.Close()
+
+			outFile, err := os.Create(savePath)
+			if err != nil {
+				errors <- fmt.Errorf("Cannot create file %s: %v", originalName, err)
+				return
+			}
+			defer outFile.Close()
+
+			saveStart := time.Now()
+			_, err = io.Copy(outFile, fileData)
+			if err != nil {
+				errors <- fmt.Errorf("Cannot save file %s: %v", originalName, err)
+				return
+			}
+			fmt.Printf("Save file %s took %v\n", newName, time.Since(saveStart))
+
+			fmt.Printf("UPLOAD [%s] - UA: [%s] - original: %s => saved: %s\n",
+				time.Now().Format(time.RFC3339), userAgent, originalName, newName)
+
+			url := "https://www.ymt-group.com/pos-image/" + newName
+			mu.Lock()
+			urls = append(urls, url)
+			mu.Unlock()
+			fmt.Printf("Loop %d took %v\n", i, time.Since(loopStart))
+			errors <- nil
+		}(i, file)
+	}
+
+	// รอผลลัพธ์จากทุก goroutine พร้อม timeout
+	timeout := time.After(30 * time.Second)
+	for i := 0; i < len(files); i++ {
+		select {
+		case err := <-errors:
+			if err != nil {
+				return c.Status(500).SendString(err.Error())
+			}
+		case <-timeout:
+			return c.Status(500).SendString("Upload timeout: operation took too long")
+		}
+	}
+
+	fmt.Printf("Total upload took %v\n", time.Since(start))
+	return c.Status(200).JSON(fiber.Map{
 		"message": "Images uploaded successfully",
 		"urls":    urls,
 	})
